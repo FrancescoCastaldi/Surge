@@ -213,6 +213,7 @@ type DownloadRequest struct {
 	SkipApproval       bool
 	Workers            int
 	MinChunkSize       int64
+	Proxy              string
 }
 
 // Enqueue probes and reserves a stable destination before dispatching to the queue layer.
@@ -334,7 +335,11 @@ func (mgr *LifecycleManager) enqueueNew(ctx context.Context, req *DownloadReques
 		defer func() { mgr.probeSem <- struct{}{} }()
 	}
 
-	probeResult, probeErr := probing.ProbeServerWithProxy(ctx, req.URL, req.Filename, req.Headers, settings.ToRuntimeConfig())
+	runCfg := settings.ToRuntimeConfig()
+	if req.Proxy != "" {
+		runCfg.ProxyURL = req.Proxy
+	}
+	probeResult, probeErr := probing.ProbeServerWithProxy(ctx, req.URL, req.Filename, req.Headers, runCfg)
 	if probeErr != nil {
 		// Distinguish between terminal client errors (invalid scheme, etc.) and
 		// server-side rejections or timeouts that we can optimistically ignore.
@@ -359,6 +364,18 @@ func (mgr *LifecycleManager) enqueueNew(ctx context.Context, req *DownloadReques
 		if req.Filename != "" {
 			probeResult.Filename = req.Filename
 			probeResult.DetectedFilename = req.Filename
+		}
+	}
+
+	if probeErr == nil && probeResult != nil {
+		if config.Resolve[bool](settings.General.BlockWebpages) {
+			ct := strings.ToLower(probeResult.ContentType)
+			if strings.Contains(ct, "text/html") {
+				ext := strings.ToLower(filepath.Ext(probeResult.Filename))
+				if ext != ".html" && ext != ".htm" {
+					return "", "", types.ErrWebpageBlocked
+				}
+			}
 		}
 	}
 
@@ -529,6 +546,9 @@ func (mgr *LifecycleManager) buildDownloadRecord(req *DownloadRequest, requestID
 	state.SetDestPath(filepath.Join(finalPath, finalFilename))
 
 	runtime := settings.ToRuntimeConfig()
+	if req.Proxy != "" {
+		runtime.ProxyURL = req.Proxy
+	}
 	if req.Workers > 0 {
 		maxConns := runtime.GetMaxConnectionsPerDownload()
 		if req.Workers > maxConns {

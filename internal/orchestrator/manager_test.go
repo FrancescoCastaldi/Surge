@@ -334,3 +334,48 @@ func TestLifecycleManager_ResumeBatch_CorruptStateIgnored(t *testing.T) {
 		t.Errorf("expected id-corrupt to be in pool")
 	}
 }
+
+
+func TestLifecycleManager_BlockWebpages(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Length", "2048")
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<html><body>Error page</body></html>"))
+	}))
+	defer ts.Close()
+
+	progressCh := make(chan types.DownloadEvent, 10)
+	pool := scheduler.New(progressCh, 2)
+	eb := NewEventBus()
+	settings := config.DefaultSettings()
+	mgr := NewLifecycleManager(pool, eb, settings)
+	defer mgr.Shutdown()
+
+	tmpDir := t.TempDir()
+
+	// 1. With BlockWebpages = true, enqueuing a webpage is blocked
+	settings.General.BlockWebpages.Value = true
+	mgr.ApplySettings(settings)
+	_, _, err := mgr.Enqueue(context.Background(), &DownloadRequest{
+		URL:      ts.URL + "/download.zip",
+		Filename: "download.zip",
+		Path:     tmpDir,
+	})
+	if !errors.Is(err, types.ErrWebpageBlocked) {
+		t.Fatalf("expected ErrWebpageBlocked, got %v", err)
+	}
+
+	// 2. With BlockWebpages = false, enqueuing succeeds
+	settings.General.BlockWebpages.Value = false
+	mgr.ApplySettings(settings)
+	_, _, err = mgr.Enqueue(context.Background(), &DownloadRequest{
+		URL:      ts.URL + "/download.zip",
+		Filename: "download.zip",
+		Path:     tmpDir,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error when BlockWebpages is false: %v", err)
+	}
+}

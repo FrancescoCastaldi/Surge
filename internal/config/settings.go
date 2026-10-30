@@ -53,6 +53,8 @@ type GeneralSettings struct {
 	LogRetentionCount            *Setting `json:"log_retention_count"`
 	LiveSpeedGraph               *Setting `json:"live_speed_graph"`
 	ShowSpeedGraph               *Setting `json:"show_speed_graph"`
+	FileExistsAction             *Setting `json:"file_exists_action"`
+	BlockWebpages                *Setting `json:"block_webpages"`
 }
 
 type NetworkSettings struct {
@@ -273,6 +275,8 @@ func (s *Settings) initializeCategoriesList() {
 				s.General.LogRetentionCount,
 				s.General.LiveSpeedGraph,
 				s.General.ShowSpeedGraph,
+				s.General.FileExistsAction,
+				s.General.BlockWebpages,
 			},
 		},
 		{
@@ -673,6 +677,34 @@ func DefaultSettings() *Settings {
 				Type:         TypeBool,
 				DefaultValue: true,
 				Value:        true,
+			},
+			FileExistsAction: &Setting{
+				Key:          "file_exists_action",
+				Label:        "File exists action",
+				Description:  "Action when destination file already exists: rename, overwrite, or ask.",
+				Type:         TypeString,
+				DefaultValue: "rename",
+				Value:        "rename",
+				ValidateFunc: func(val any) error {
+					sVal, ok := val.(string)
+					if !ok {
+						return fmt.Errorf("must be a string")
+					}
+					switch strings.ToLower(strings.TrimSpace(sVal)) {
+					case "rename", "overwrite", "ask":
+						return nil
+					default:
+						return fmt.Errorf("must be one of: rename, overwrite, ask")
+					}
+				},
+			},
+			BlockWebpages: &Setting{
+				Key:          "block_webpages",
+				Label:        "Block webpage downloads",
+				Description:  "Prevent accidental downloads of HTML webpages (text/html Content-Type).",
+				Type:         TypeBool,
+				DefaultValue: false,
+				Value:        false,
 			},
 		},
 		Network: NetworkSettings{

@@ -291,3 +291,35 @@ func TestCategoryDirectoryFailureIdentifiesDestination(t *testing.T) {
 		t.Fatalf("expected an error identifying the blocked destination, got %v", err)
 	}
 }
+
+
+func TestResolveDestination_FileExistsActionOverwrite(t *testing.T) {
+	base := t.TempDir()
+	existingFile := filepath.Join(base, "sample.txt")
+	if err := os.WriteFile(existingFile, []byte("existing"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	settings := config.DefaultSettings()
+	settings.Categories.CategoryEnabled.Value = false
+
+	// Case 1: Default rename policy produces sample (1).txt
+	settings.General.FileExistsAction.Value = "rename"
+	_, name, err := ResolveDestination("https://example.com/sample.txt", "sample.txt", base, false, settings, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if name != "sample(1).txt" {
+		t.Errorf("name = %q, want sample (1).txt", name)
+	}
+
+	// Case 2: Overwrite policy keeps original filename
+	settings.General.FileExistsAction.Value = "overwrite"
+	_, nameOverwrite, err := ResolveDestination("https://example.com/sample.txt", "sample.txt", base, false, settings, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if nameOverwrite != "sample.txt" {
+		t.Errorf("name = %q, want sample.txt", nameOverwrite)
+	}
+}

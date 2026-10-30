@@ -193,6 +193,22 @@ func resolveDestinationWithPolicy(url, candidateFilename, defaultDir string, rou
 	// Safety: Truncate early so GetUniqueFilename has room to append a suffix
 	filename = utils.TruncateFilename(filename)
 
+	if onExists == "" && settings != nil && settings.General.FileExistsAction != nil {
+		action := strings.ToLower(strings.TrimSpace(config.Resolve[string](settings.General.FileExistsAction)))
+		if action == "overwrite" {
+			onExists = "overwrite"
+		} else if action == "fail" {
+			onExists = "fail"
+		}
+	}
+
+	if onExists == "overwrite" {
+		if !filepath.IsLocal(filename) || strings.ContainsAny(filename, "/\\:\x00") || filename == "." {
+			return "", "", fmt.Errorf("invalid filename")
+		}
+		return destPath, filename, nil
+	}
+
 	if onExists == "fail" {
 		if !filepath.IsLocal(filename) || strings.ContainsAny(filename, "/\\:\x00") || filename == "." {
 			return "", "", fmt.Errorf("invalid filename")

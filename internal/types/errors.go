@@ -38,6 +38,7 @@ var (
 
 	// ErrRetryBudgetExceeded ends automatic retries while retaining resumable data.
 	ErrRetryBudgetExceeded = errors.New("automatic retry budget exhausted")
+	ErrWebpageBlocked     = errors.New("download blocked: server returned HTML webpage instead of requested file")
 )
 
 // IsInsufficientDiskSpace reports whether err is (or wraps) a disk-full
