@@ -87,3 +87,20 @@ func MapWindowsPathToDefaultDir(requestPath, defaultDir string) (string, bool) {
 	joined := append([]string{filepath.Clean(defaultDir)}, relParts...)
 	return filepath.Join(joined...), true
 }
+
+
+// ConvertWindowsToWSLPath converts a Windows absolute drive path (e.g. C:\Users\me\Downloads
+// or C:/Users/me/Downloads) into its corresponding WSL mount path (/mnt/c/Users/me/Downloads).
+// If the path does not have a Windows drive letter, it returns the input unchanged.
+func ConvertWindowsToWSLPath(p string) string {
+	p = strings.TrimSpace(p)
+	if len(p) >= 3 &&
+		((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')) &&
+		p[1] == ':' &&
+		(p[2] == '/' || p[2] == '\\') {
+		drive := strings.ToLower(string(p[0]))
+		rest := strings.ReplaceAll(p[2:], "\\", "/")
+		return "/mnt/" + drive + rest
+	}
+	return p
+}

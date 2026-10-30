@@ -142,3 +142,24 @@ func TestMapWindowsPathToDefaultDir(t *testing.T) {
 		})
 	}
 }
+
+
+func TestConvertWindowsToWSLPath(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"C:\\Users\\me\\Downloads", "/mnt/c/Users/me/Downloads"},
+		{"c:/Users/me/Downloads", "/mnt/c/Users/me/Downloads"},
+		{"D:\\data\\file.iso", "/mnt/d/data/file.iso"},
+		{"/downloads/file.iso", "/downloads/file.iso"},
+		{"relative/path", "relative/path"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := ConvertWindowsToWSLPath(tt.in)
+		if got != tt.want {
+			t.Errorf("ConvertWindowsToWSLPath(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
