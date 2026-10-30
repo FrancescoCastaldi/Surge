@@ -8,6 +8,7 @@ import (
 	"github.com/SurgeDM/Surge/internal/scheduler"
 	"github.com/SurgeDM/Surge/internal/service"
 	"github.com/SurgeDM/Surge/internal/store"
+	"github.com/SurgeDM/Surge/internal/transport"
 	"github.com/SurgeDM/Surge/internal/types"
 	"github.com/SurgeDM/Surge/internal/utils"
 )
@@ -50,6 +51,7 @@ func initializeLocalEngine() error {
 		return err
 	}
 	GlobalProgressCh = make(chan types.DownloadEvent, types.ProgressChannelBuffer)
+	transport.DefaultNetworkPool.SetTLSConfig(globalTLSCAFile, globalInsecureTLS)
 	GlobalPool = scheduler.New(GlobalProgressCh, config.Resolve[int](settings.Network.MaxConcurrentDownloads))
 	return nil
 }

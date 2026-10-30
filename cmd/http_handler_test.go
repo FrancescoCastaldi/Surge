@@ -693,3 +693,86 @@ func TestHandleDownload_DoesNotUseCancelledHTTPRequestContext(t *testing.T) {
 		t.Fatalf("filename = %q, want %q", configs[0].Filename, "ctx-test.bin")
 	}
 }
+
+
+func TestHandleDownload_CustomIDInRequestPayload(t *testing.T) {
+	setupIsolatedCmdState(t)
+
+	progressCh := make(chan types.DownloadEvent, 10)
+	GlobalProgressCh = progressCh
+	if GlobalPool != nil {
+		GlobalPool.GracefulShutdown()
+	}
+	tmpPool := scheduler.New(progressCh, 1)
+	t.Cleanup(func() {
+		if tmpPool != nil {
+			tmpPool.GracefulShutdown()
+		}
+	})
+	GlobalPool = tmpPool
+
+	origLifecycle := GlobalLifecycle
+	origService := GlobalService
+	t.Cleanup(func() {
+		GlobalLifecycle = origLifecycle
+		GlobalService = origService
+		GlobalPool = nil
+		GlobalProgressCh = nil
+	})
+
+	probeServer := testutil.NewHTTPServerT(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", "bytes 0-0/7")
+		w.Header().Set("Content-Length", "1")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("x"))
+	}))
+	defer probeServer.Close()
+
+	tempDir := t.TempDir()
+
+	eventBus := orchestrator.NewEventBus()
+	t.Cleanup(func() { eventBus.Shutdown() })
+	getAll := func() []types.DownloadRecord { return GlobalPool.GetAll() }
+	tmpLifecycle := orchestrator.NewLifecycleManager(GlobalPool, eventBus, nil, buildActiveDownloadChecker(getAll))
+	t.Cleanup(func() { tmpLifecycle.Shutdown() })
+	GlobalLifecycle = tmpLifecycle
+	svc := service.NewLocalDownloadService(GlobalLifecycle)
+	GlobalService = svc
+	t.Cleanup(func() {
+		_ = svc.Shutdown()
+	})
+
+	customID := "custom-surge-id-454"
+	body := fmt.Sprintf(`{
+		"id": %q,
+		"url": %q,
+		"filename": "custom-id.bin",
+		"path": %q,
+		"skip_approval": true
+	}`, customID, probeServer.URL, tempDir)
+
+	req := httptest.NewRequest(http.MethodPost, "/download", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+
+	handleDownload(rec, req, "", svc)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp["id"] != customID {
+		t.Fatalf("expected response id %q, got %v", customID, resp["id"])
+	}
+
+	configs := GlobalPool.GetAll()
+	if len(configs) != 1 {
+		t.Fatalf("expected 1 download queued, got %d", len(configs))
+	}
+	if configs[0].ID != customID {
+		t.Fatalf("expected queued config ID %q, got %q", customID, configs[0].ID)
+	}
+}

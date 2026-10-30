@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/SurgeDM/Surge/internal/clioutput"
+	"github.com/SurgeDM/Surge/internal/types"
 )
 
 // submissionItem correlates a receipt with its one-based position in the input.
@@ -80,7 +81,14 @@ func attachSubmissionError(item submissionItem, err error) submissionItem {
 	return item
 }
 
-func collectSubmissions(urls []string, output, baseURL, token string, confirm bool) []submissionItem {
+type addSubmissionOptions struct {
+	confirm   bool
+	proxy     string
+	overwrite bool
+	checksum  string
+}
+
+func collectSubmissions(urls []string, output, baseURL, token string, opts addSubmissionOptions) []submissionItem {
 	items := make([]submissionItem, 0, len(urls))
 	for index, input := range urls {
 		url, mirrors, err := parseAndNormalizeURLArg(input)
@@ -88,8 +96,16 @@ func collectSubmissions(urls []string, output, baseURL, token string, confirm bo
 		if err != nil || url == "" {
 			err = clioutput.NewError(clioutput.InvalidArguments, "Input must be a valid HTTP or HTTPS download URL.", nil)
 		} else {
+			artifact := types.ArtifactPolicy{}
+			if opts.overwrite {
+				artifact.OnExists = "overwrite"
+			}
+			if opts.checksum != "" {
+				artifact.ExpectedSHA256 = opts.checksum
+			}
 			item, err = requestSubmission(baseURL, token, "/download", DownloadRequest{
-				URL: url, Mirrors: mirrors, Path: output, SkipApproval: !confirm,
+				URL: url, Mirrors: mirrors, Path: output, SkipApproval: !opts.confirm,
+				Proxy: opts.proxy, Artifact: artifact,
 			})
 		}
 		item.InputIndex = index + 1
@@ -100,7 +116,14 @@ func collectSubmissions(urls []string, output, baseURL, token string, confirm bo
 
 // Confirmed batches retain the existing single TUI prompt. A batch request ID
 // identifies that approval request, not individual queued jobs.
-func collectConfirmedBatch(urls []string, output, baseURL, token string) []submissionItem {
+func collectConfirmedBatch(urls []string, output, baseURL, token string, opts addSubmissionOptions) []submissionItem {
+	artifact := types.ArtifactPolicy{}
+	if opts.overwrite {
+		artifact.OnExists = "overwrite"
+	}
+	if opts.checksum != "" {
+		artifact.ExpectedSHA256 = opts.checksum
+	}
 	request := BatchDownloadRequest{Path: output, SkipApproval: false}
 	items := make([]submissionItem, len(urls))
 	invalid := false
@@ -111,7 +134,7 @@ func collectConfirmedBatch(urls []string, output, baseURL, token string) []submi
 			invalid = true
 			items[index] = attachSubmissionError(items[index], clioutput.NewError(clioutput.InvalidArguments, "Input must be a valid HTTP or HTTPS download URL.", nil))
 		}
-		request.Downloads = append(request.Downloads, DownloadRequest{URL: url, Mirrors: mirrors, Path: output})
+		request.Downloads = append(request.Downloads, DownloadRequest{URL: url, Mirrors: mirrors, Path: output, Proxy: opts.proxy, Artifact: artifact})
 	}
 	if invalid {
 		for index := range items {

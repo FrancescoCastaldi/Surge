@@ -22,6 +22,7 @@ import (
 
 // DownloadRequest represents a download request from the browser extension
 type DownloadRequest struct {
+	ID                   string               `json:"id,omitempty"`
 	Artifact             types.ArtifactPolicy `json:"artifact,omitzero"`
 	URL                  string               `json:"url"`
 	Filename             string               `json:"filename,omitempty"`
@@ -34,6 +35,7 @@ type DownloadRequest struct {
 	IsExplicitCategory   bool                 `json:"is_explicit_category,omitempty"`
 	Workers              int                  `json:"workers,omitempty"`        // Per-task worker count override (bypasses √size heuristic when >0)
 	MinChunkSize         int64                `json:"min_chunk_size,omitempty"` // Per-task minimum chunk size override
+	Proxy                string               `json:"proxy,omitempty"`          // Per-download proxy URL
 }
 
 type BatchDownloadRequest struct {
@@ -216,7 +218,8 @@ func validateDownloadRequest(req DownloadRequest) (DownloadRequest, error) {
 		}
 		requestPath = cleanPath
 	}
-	return DownloadRequest{Artifact: req.Artifact,
+	return DownloadRequest{ID: req.ID,
+		Artifact: req.Artifact,
 		URL:                  req.URL,
 		Filename:             filename,
 		Path:                 requestPath,
@@ -228,6 +231,7 @@ func validateDownloadRequest(req DownloadRequest) (DownloadRequest, error) {
 		IsExplicitCategory:   req.IsExplicitCategory,
 		Workers:              req.Workers,
 		MinChunkSize:         req.MinChunkSize,
+		Proxy:                strings.TrimSpace(req.Proxy),
 	}, nil
 }
 
@@ -281,10 +285,14 @@ func handleBatchDownload(w http.ResponseWriter, r *http.Request, defaultOutputDi
 		}
 		urlForAdd, mirrorsForAdd := normalizeDownloadTargets(validated.URL, validated.Mirrors)
 		itemPath := utils.EnsureAbsPath(resolveOutputDir(validated.Path, validated.RelativeToDefaultDir, defaultOutputDir, settings))
+		batchItemDownloadID := validated.ID
+		if strings.TrimSpace(batchItemDownloadID) == "" {
+			batchItemDownloadID = uuid.New().String()
+		}
 		requests = append(requests, types.DownloadEvent{
 			Artifact:           validated.Artifact,
 			Type:               types.EventRequest,
-			DownloadID:         uuid.New().String(),
+			DownloadID:         batchItemDownloadID,
 			URL:                urlForAdd,
 			Filename:           validated.Filename,
 			Path:               itemPath,
@@ -293,6 +301,7 @@ func handleBatchDownload(w http.ResponseWriter, r *http.Request, defaultOutputDi
 			IsExplicitCategory: validated.IsExplicitCategory,
 			Workers:            validated.Workers,
 			MinChunkSize:       validated.MinChunkSize,
+			Proxy:              validated.Proxy,
 		})
 	}
 
@@ -327,6 +336,7 @@ func handleBatchDownload(w http.ResponseWriter, r *http.Request, defaultOutputDi
 	for _, item := range requests {
 		resolved := &resolvedDownloadRequest{
 			request: DownloadRequest{
+				ID:                 item.DownloadID,
 				Artifact:           item.Artifact,
 				URL:                item.URL,
 				Filename:           item.Filename,
@@ -337,6 +347,7 @@ func handleBatchDownload(w http.ResponseWriter, r *http.Request, defaultOutputDi
 				IsExplicitCategory: item.IsExplicitCategory,
 				Workers:            item.Workers,
 				MinChunkSize:       item.MinChunkSize,
+				Proxy:              item.Proxy,
 			},
 			settings:      settings,
 			outPath:       item.Path,
@@ -512,6 +523,9 @@ func enqueueDownloadRequest(r *http.Request, service service.DownloadService, re
 
 	req := resolved.request
 	reqID := r.URL.Query().Get("id")
+	if reqID == "" && strings.TrimSpace(req.ID) != "" {
+		reqID = strings.TrimSpace(req.ID)
+	}
 
 	if lifecycle != nil {
 		dlReq := &orchestrator.DownloadRequest{Artifact: req.Artifact,
@@ -524,6 +538,7 @@ func enqueueDownloadRequest(r *http.Request, service service.DownloadService, re
 			SkipApproval:       req.SkipApproval,
 			Workers:            req.Workers,
 			MinChunkSize:       req.MinChunkSize,
+			Proxy:              req.Proxy,
 		}
 		// Use the application-level enqueue context instead of r.Context().
 		// The HTTP request context is cancelled when the handler returns or
@@ -694,6 +709,16 @@ func mapClientWindowsPath(reqPath string, relativeToDefaultDir bool, defaultOutp
 
 	if mapped, ok := utils.MapWindowsPathToDefaultDir(reqPath, baseDir); ok {
 		return mapped
+	}
+
+	if runtime.GOOS == "linux" {
+		wslPath := utils.ConvertWindowsToWSLPath(reqPath)
+		if wslPath != reqPath {
+			driveMount := filepath.Clean(wslPath[:7])
+			if _, err := os.Stat(driveMount); err == nil {
+				return filepath.Clean(wslPath)
+			}
+		}
 	}
 
 	if !shouldFallbackUnmappedWindowsPath(relativeToDefaultDir, runtime.GOOS) {

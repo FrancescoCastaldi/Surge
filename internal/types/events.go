@@ -61,6 +61,7 @@ type DownloadEvent struct {
 	RateLimitSet bool     `json:"rate_limit_set,omitempty"`
 	Workers      int      `json:"workers,omitempty"`
 	MinChunkSize int64    `json:"min_chunk_size,omitempty"`
+	Proxy        string   `json:"proxy,omitempty"`
 	Mirrors      []string `json:"mirrors,omitempty"`
 
 	// Request

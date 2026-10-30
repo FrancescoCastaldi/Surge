@@ -209,3 +209,31 @@ func TestAddRequiresInputAndHonorsOutputFailures(t *testing.T) {
 		}
 	})
 }
+
+
+func TestAddCommand_FlagsParsing(t *testing.T) {
+	cmd := newAddCommand()
+	err := cmd.ParseFlags([]string{
+		"--proxy", "http://127.0.0.1:8888",
+		"--overwrite",
+		"--sha256", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+	})
+	if err != nil {
+		t.Fatalf("unexpected flag parse error: %v", err)
+	}
+
+	proxy, _ := cmd.Flags().GetString("proxy")
+	if proxy != "http://127.0.0.1:8888" {
+		t.Errorf("proxy = %q, want http://127.0.0.1:8888", proxy)
+	}
+
+	overwrite, _ := cmd.Flags().GetBool("overwrite")
+	if !overwrite {
+		t.Errorf("overwrite = false, want true")
+	}
+
+	sha256Val, _ := cmd.Flags().GetString("sha256")
+	if sha256Val != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
+		t.Errorf("sha256 = %q, want e3b0c442...", sha256Val)
+	}
+}

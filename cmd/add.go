@@ -22,6 +22,11 @@ func newAddCommand() *cobra.Command {
 	command.Flags().StringP("output", "o", "", "Output directory (defaults to current working directory)")
 	command.Flags().Bool("confirm", false, "Request confirmation in the running TUI before starting downloads")
 	command.Flags().String("output-version", "", "Use a versioned JSON contract (supported: 1)")
+	command.Flags().String("proxy", "", "Proxy URL for this download (e.g. http://127.0.0.1:8080 or socks5://127.0.0.1:1080)")
+	command.Flags().BoolP("overwrite", "f", false, "Force overwrite if destination file already exists")
+	command.Flags().Bool("force", false, "Alias for --overwrite")
+	command.Flags().String("sha256", "", "Expected SHA-256 checksum to verify against downloaded file")
+	command.Flags().String("checksum", "", "Alias for --sha256")
 	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return clioutput.NewError(clioutput.InvalidArguments, "Invalid command flags.", err)
 	})
@@ -36,6 +41,23 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	batchFile, _ := cmd.Flags().GetString("batch")
 	output, _ := cmd.Flags().GetString("output")
 	confirm, _ := cmd.Flags().GetBool("confirm")
+	proxy, _ := cmd.Flags().GetString("proxy")
+	overwrite, _ := cmd.Flags().GetBool("overwrite")
+	force, _ := cmd.Flags().GetBool("force")
+	if force {
+		overwrite = true
+	}
+	checksum, _ := cmd.Flags().GetString("sha256")
+	if checksum == "" {
+		checksum, _ = cmd.Flags().GetString("checksum")
+	}
+	checksum = strings.TrimSpace(checksum)
+	opts := addSubmissionOptions{
+		confirm:   confirm,
+		proxy:     proxy,
+		overwrite: overwrite,
+		checksum:  checksum,
+	}
 	urls := append([]string(nil), args...)
 	if batchFile != "" {
 		fileURLs, err := utils.ReadURLsFromFile(batchFile)
@@ -57,9 +79,9 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	resolvedOutput := resolveClientOutputPath(output)
 	var items []submissionItem
 	if batchFile != "" && confirm {
-		items = collectConfirmedBatch(urls, resolvedOutput, baseURL, token)
+		items = collectConfirmedBatch(urls, resolvedOutput, baseURL, token, opts)
 	} else {
-		items = collectSubmissions(urls, resolvedOutput, baseURL, token, confirm)
+		items = collectSubmissions(urls, resolvedOutput, baseURL, token, opts)
 	}
 	err = submissionFailure(items)
 	if version == "1" {

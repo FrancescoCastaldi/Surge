@@ -597,6 +597,24 @@ func TestDownloadRequest_JSONSerialization(t *testing.T) {
 	}
 }
 
+func TestDownloadRequest_CustomID(t *testing.T) {
+	jsonStr := `{"id": "my-custom-id-123", "url": "https://example.com/file.zip"}`
+	var req DownloadRequest
+	if err := json.Unmarshal([]byte(jsonStr), &req); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+	if req.ID != "my-custom-id-123" {
+		t.Errorf("expected ID 'my-custom-id-123', got %q", req.ID)
+	}
+	validated, err := validateDownloadRequest(req)
+	if err != nil {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+	if validated.ID != "my-custom-id-123" {
+		t.Errorf("expected validated ID 'my-custom-id-123', got %q", validated.ID)
+	}
+}
+
 func TestDownloadRequest_OptionalFields(t *testing.T) {
 	// Only URL is required
 	jsonStr := `{"url": "https://example.com/file.zip"}`
