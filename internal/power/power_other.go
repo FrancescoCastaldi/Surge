@@ -7,6 +7,12 @@ import (
 	"errors"
 )
 
+type noopController struct{}
+
+func (noopController) AcquireInhibitor(string) (ReleaseFunc, error) {
+	return func() error { return nil }, nil
+}
+
 type osController struct {
 	noopController
 }
