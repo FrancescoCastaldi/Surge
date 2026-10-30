@@ -187,3 +187,32 @@ func TestNetworkPool_ConfigChange(t *testing.T) {
 		t.Error("Expected transport reuse for identical config")
 	}
 }
+
+
+func TestNetworkPool_TLSConfig(t *testing.T) {
+	pool := &NetworkPool{}
+
+	// Default: InsecureSkipVerify is false
+	t1 := pool.AcquireTransport("", "", 0)
+	defer pool.ReleaseTransport(t1)
+	if t1.TLSClientConfig == nil {
+		t.Fatal("expected non-nil TLSClientConfig")
+	}
+	if t1.TLSClientConfig.InsecureSkipVerify != false {
+		t.Errorf("expected InsecureSkipVerify = false, got true")
+	}
+
+	// SetTLSConfig with insecureTLS = true
+	pool.SetTLSConfig("", true)
+	t2 := pool.AcquireTransport("", "", 0)
+	defer pool.ReleaseTransport(t2)
+	if t2.TLSClientConfig == nil {
+		t.Fatal("expected non-nil TLSClientConfig")
+	}
+	if t2.TLSClientConfig.InsecureSkipVerify != true {
+		t.Errorf("expected InsecureSkipVerify = true, got false")
+	}
+	if t1 == t2 {
+		t.Errorf("expected distinct transports for different TLS configurations")
+	}
+}

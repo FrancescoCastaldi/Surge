@@ -3,9 +3,13 @@ package transport
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,9 +18,11 @@ import (
 )
 
 type poolKey struct {
-	proxyURL  string
-	customDNS string
-	maxConns  int
+	proxyURL    string
+	customDNS   string
+	maxConns    int
+	insecureTLS bool
+	caFile      string
 }
 
 // transportLease tracks a specific transport's usage and cleanup lifecycle.
@@ -33,6 +39,16 @@ type NetworkPool struct {
 	mu           sync.Mutex
 	configMap    map[poolKey]*transportLease
 	transportMap map[*http.Transport]*transportLease
+	caFile       string
+	insecureTLS  bool
+}
+
+// SetTLSConfig configures the certificate bundle and verification behavior for created transports.
+func (p *NetworkPool) SetTLSConfig(caFile string, insecureTLS bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.caFile = caFile
+	p.insecureTLS = insecureTLS
 }
 
 // DefaultNetworkPool is the global instance managed by the engine layer.
@@ -58,11 +74,20 @@ func (p *NetworkPool) AcquireTransport(proxyURL, customDNS string, maxConns int)
 		p.transportMap = make(map[*http.Transport]*transportLease)
 	}
 
-	key := poolKey{proxyURL, customDNS, maxConns}
+	insecureTLS := p.insecureTLS
+	if !insecureTLS && (os.Getenv("SURGE_INSECURE_TLS") == "1" || strings.EqualFold(os.Getenv("SURGE_INSECURE_TLS"), "true")) {
+		insecureTLS = true
+	}
+	caFile := p.caFile
+	if caFile == "" {
+		caFile = os.Getenv("SURGE_TLS_CA_FILE")
+	}
+
+	key := poolKey{proxyURL, customDNS, maxConns, insecureTLS, caFile}
 
 	lease, ok := p.configMap[key]
 	if !ok {
-		t := p.createNewTransport(proxyURL, customDNS, maxConns)
+		t := p.createNewTransport(proxyURL, customDNS, maxConns, insecureTLS, caFile)
 		lease = &transportLease{
 			transport: t,
 			key:       key,
@@ -137,7 +162,7 @@ func (p *NetworkPool) CloseAll() {
 	p.transportMap = make(map[*http.Transport]*transportLease)
 }
 
-func (p *NetworkPool) createNewTransport(proxyURL, customDNS string, maxConns int) *http.Transport {
+func (p *NetworkPool) createNewTransport(proxyURL, customDNS string, maxConns int, insecureTLS bool, caFile string) *http.Transport {
 	utils.Debug("NetworkPool: creating new shared transport (proxy host=%s, limit=%d)", utils.URLHostForLog(proxyURL), maxConns)
 
 	dialer := &net.Dialer{
@@ -178,8 +203,36 @@ func (p *NetworkPool) createNewTransport(proxyURL, customDNS string, maxConns in
 		DisableCompression: true,
 		ForceAttemptHTTP2:  false,
 		TLSNextProto:       make(map[string]func(string, *tls.Conn) http.RoundTripper),
-		TLSClientConfig: &tls.Config{
-			ClientSessionCache: sharedClientSessionCache,
-		},
+		TLSClientConfig: p.buildTLSConfig(insecureTLS, caFile),
 	}
+}
+
+func (p *NetworkPool) buildTLSConfig(insecureTLS bool, caFile string) *tls.Config {
+	cfg := &tls.Config{
+		ClientSessionCache: sharedClientSessionCache,
+		InsecureSkipVerify: insecureTLS,
+	}
+	if caFile != "" {
+		if pool, err := loadCACertPool(caFile); err == nil {
+			cfg.RootCAs = pool
+		} else {
+			utils.Debug("NetworkPool: failed to load CA file %q: %v", caFile, err)
+		}
+	}
+	return cfg
+}
+
+func loadCACertPool(caFile string) (*x509.CertPool, error) {
+	pemData, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pemData) {
+		return nil, fmt.Errorf("no valid certificates found in %s", caFile)
+	}
+	return pool, nil
 }
