@@ -333,10 +333,10 @@ func handleBatchDownload(w http.ResponseWriter, r *http.Request, defaultOutputDi
 
 	queued := 0
 	var failures []map[string]string
-	for _, item := range requests {
+	for i, item := range requests {
 		resolved := &resolvedDownloadRequest{
 			request: DownloadRequest{
-				ID:                 item.DownloadID,
+				ID:                 strings.TrimSpace(req.Downloads[i].ID),
 				Artifact:           item.Artifact,
 				URL:                item.URL,
 				Filename:           item.Filename,
